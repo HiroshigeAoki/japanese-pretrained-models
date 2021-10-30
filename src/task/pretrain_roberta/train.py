@@ -115,12 +115,12 @@ def construct_data(tokenizer, seqs, mask_prob, device):
 
 def forward_step(model, tokenizer, batch_data, mask_prob):
     data_dict = construct_data(tokenizer, batch_data, mask_prob, model.device)
-    
+
     input_ids = data_dict["input_ids"]
     output_ids = data_dict["output_ids"]
     position_ids = data_dict["position_ids"]
     attn_masks = data_dict["attn_masks"]
-    
+
     # forward
     model_outputs = model(
         input_ids=input_ids,
@@ -153,11 +153,11 @@ def train(local_rank, config):
     # multi-gpu init
     if torch.cuda.is_available():
         if config.world_size > 1:
-            dist.init_process_group(                                   
-                backend='nccl',                                    
-                init_method='env://',                                   
-                world_size=config.world_size,                              
-                rank=global_rank                                 
+            dist.init_process_group(
+                backend='nccl',
+                init_method='env://',
+                world_size=config.world_size,
+                rank=global_rank
             )
             torch.cuda.set_device(local_rank)
             DEVICE = torch.device("cuda", local_rank)
@@ -177,7 +177,7 @@ def train(local_rank, config):
         sep_token="[SEP]",
         mask_token="[MASK]",
         extra_ids=0,
-        additional_special_tokens=(),
+        additional_special_tokens=tuple(config.additional_special_tokens),
         do_lower_case=True
     )
 
@@ -196,7 +196,7 @@ def train(local_rank, config):
             corpus_config = Config()
 
             dev_file_idx = 42
-            
+
             corpus_filepaths = sorted(list(filter(
                 lambda x: x.endswith(".txt"),
                 os.listdir(corpus_config.doc_data_dir)
@@ -212,7 +212,23 @@ def train(local_rank, config):
             corpus_config = Config()
 
             dev_file_idx = None  # we want to learn all Wikipedia docs
-            
+
+            corpus_filepaths = sorted(list(filter(
+                lambda x: x.endswith(".txt"),
+                os.listdir(corpus_config.doc_data_dir)
+            )))
+            for file_idx, filepath in enumerate(corpus_filepaths):
+                if file_idx == dev_file_idx:
+                    corpus2dev_filepaths[corpus].append(f"{corpus_config.doc_data_dir}/{corpus_filepaths[file_idx]}")
+                else:
+                    corpus2train_filepaths[corpus].append(f"{corpus_config.doc_data_dir}/{corpus_filepaths[file_idx]}")
+
+        elif corpus == "wereWolf_BBS":
+            from corpus.wereWolf_BBS.config import Config
+            corpus_config = Config()
+            # TODO: dev_file_idxを決める。
+            dev_file_idx = None
+
             corpus_filepaths = sorted(list(filter(
                 lambda x: x.endswith(".txt"),
                 os.listdir(corpus_config.doc_data_dir)
@@ -253,7 +269,7 @@ def train(local_rank, config):
         random.shuffle(train_filepaths)
     else:
         raise Exception(f"Unknown corpora balancing strategy: {config.balanced_corpora}")
-        
+
     if config.small_data:
         train_filepaths = train_filepaths[:2]
 
@@ -270,7 +286,7 @@ def train(local_rank, config):
         dev_docs = []
         for dev_filepath in dev_filepaths:
             dev_docs += load_docs_from_filepath(dev_filepath, tokenizer)
-        
+
         random.shuffle(dev_docs)
         dev_docs = dev_docs[:10000]
 
@@ -287,7 +303,7 @@ def train(local_rank, config):
 
     # build model
     model_config = PretrainedConfig.from_json_file(config.model_config_filepath)
-    model = RobertaForMaskedLM(model_config)
+    model = RobertaForMaskedLM(model_config) if not config.task_adaptive_pretraining else RobertaForMaskedLM.from_pretrained("rinna/japanese-roberta-base")
     model = model.to(DEVICE)
 
     # load model from checkpoint
@@ -306,7 +322,7 @@ def train(local_rank, config):
     # use multi gpus
     if config.world_size > 1:
         model = DDP(
-            model, 
+            model,
             device_ids=[local_rank]
         )
 
@@ -336,7 +352,7 @@ def train(local_rank, config):
         num_warmup_steps=config.n_warmup_steps,
         num_training_steps=config.n_training_steps,
     )
-    
+
     # init environment or load from checkpoint
     if config.checkpoint_path:
         if config.resume_training:
@@ -371,7 +387,7 @@ def train(local_rank, config):
         )
     if config.filename_note:
         OUTPUT_FILEID += f".{config.filename_note}"
-    
+
     # define logger
     def mlog(s):
         if global_rank == 0:
@@ -396,12 +412,12 @@ def train(local_rank, config):
 
     for epoch_idx in range(start_n_epoch, config.n_epochs):
         for train_file_idx in range(start_train_file_idx, len(train_filepaths), config.n_train_files_per_group):
-            
+
             group_train_filepaths = train_filepaths[train_file_idx:train_file_idx+config.n_train_files_per_group]
-            
+
             with mp.Pool(processes=config.n_train_files_per_group) as pool:
                 group_train_docs = pool.starmap(
-                    load_docs_from_filepath, 
+                    load_docs_from_filepath,
                     [(train_filepath, tokenizer) for train_filepath in group_train_filepaths]
                 )
                 train_docs = [doc for docs in group_train_docs for doc in docs]
@@ -496,11 +512,11 @@ def train(local_rank, config):
 
                 # evaluation on dev dataset
                 if global_rank == 0 and n_step > 0 and n_step % config.validate_after_n_step == 0:
-                    
+
                     # forward
                     with torch.no_grad():
                         model.eval()
-                        
+
                         # use only 1 gpu for evaluation in multi-gpu situation
                         if config.world_size > 1:
                             eval_model = model.module
@@ -574,7 +590,7 @@ if __name__ == "__main__":
     # modeling
     parser.add_argument("--model_size", type=str, default="base", help="for naming")
     parser.add_argument("--model_config_filepath", type=str, default="model/roberta-ja-base-config.json", help="path to model config file")
-    
+
     # training
     parser.add_argument("--seed", type=int, default=42, help="random initialization seed")
     parser.add_argument("--batch_size", type=int, default=32, help="batch size for training. 32 for base.")
@@ -588,6 +604,8 @@ if __name__ == "__main__":
     parser.add_argument("--max_seq_len", type=int, default=512, help="maximum input sequence length")
     parser.add_argument("--n_accum_steps", type=int, default=16, help="number of gradient accumulation steps. 16 for base.")
     parser.add_argument("--mask_prob", type=float, default=0.15, help="probability of masking a token")
+    parser.add_argument("--task_adaptive_pretraining", action='store_true')
+    parser.add_argument('--additional_special_tokens', nargs='+', default='', type=str)
 
     # multi-gpu
     parser.add_argument("--n_nodes", type=int, default=1, help="number of nodes; See pytorch DDP tutorial for details")
