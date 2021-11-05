@@ -16,6 +16,7 @@ Currently supported pretrained models include: [GPT-2](https://d4mucfpksywv.clou
 | [Use our pretrained models via Huggingface](#use-our-pretrained-models-via-huggingface) |
 | [Train `japanese-gpt2-xsmall` from scratch](#train-japanese-gpt2-xsmall-from-scratch) |
 | [Train `japanese-roberta-base` from scratch](#train-japanese-roberta-base-from-scratch) |
+| [Task adaptive pre-training with wereWolf_BBS corpus.](#train-japanese-roberta-base-from-scratch) |
 | [License](#license) |
 
 ---
@@ -25,6 +26,8 @@ Currently supported pretrained models include: [GPT-2](https://d4mucfpksywv.clou
 ---
 
 ## Update log
+
+* 2021/11/05 Added the task_adaptive_pretraining feature(by [Hiroshige Aoki](https://github.com/HiroshigeAoki) )
 
 * 2021/11/01 Updated corpora links.
 
@@ -242,6 +245,31 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 python -m task.pretrain_roberta.train \
     --n_training_steps 3000000 \
     --n_accum_steps 16 \
     --init_lr 0.0006
+~~~~
+
+---
+
+## Task adaptive pre-training with wereWolf_BBS corpus.
+
+[Hiroshige Aoki](https://github.com/HiroshigeAoki) modified original implementation partially and added a [task_adaptive_pretraining(Gururangan et al., 2020)](http://arxiv.org/abs/2004.10964) feature.
+I will share the wereWolf_BBS corpus, which I used for additional pre-training later.
+
+~~~~
+CUDA_VISIBLE_DEVICES=3 python -m task.pretrain_roberta.train \
+    --n_gpus 1 \
+    --save_model True \
+    --enable_log True \
+    --model_size base \
+    --model_config_filepath model/roberta-ja-base-config.json \
+    --batch_size 32 \
+    --eval_batch_size 32 \
+    --n_training_steps 3000000 \
+    --n_accum_steps 16 \
+    --init_lr 0.0006 \
+    --corpora 'wereWolf_BBS' \
+    --task_adaptive_pretraining \
+    --person_token_base_words 君 きみ あなた 彼 彼女 \
+    --use_amp True \
 ~~~~
 
 ---
