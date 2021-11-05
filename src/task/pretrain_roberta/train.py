@@ -177,9 +177,12 @@ def train(local_rank, config):
         sep_token="[SEP]",
         mask_token="[MASK]",
         extra_ids=0,
-        additional_special_tokens=tuple(config.additional_special_tokens),
         do_lower_case=True
     )
+
+    if "wereWolf_BBS" in config.corpora:
+        person_token = '<person>'
+        tokenizer.add_tokens(person_token)
 
     # build data source and reporters
     trn_reporter = StatisticsReporter()
@@ -226,8 +229,8 @@ def train(local_rank, config):
         elif corpus == "wereWolf_BBS":
             from corpus.wereWolf_BBS.config import Config
             corpus_config = Config()
-            # TODO: dev_file_idxを決める。
-            dev_file_idx = None
+
+            dev_file_idx = 17
 
             corpus_filepaths = sorted(list(filter(
                 lambda x: x.endswith(".txt"),
@@ -304,6 +307,15 @@ def train(local_rank, config):
     # build model
     model_config = PretrainedConfig.from_json_file(config.model_config_filepath)
     model = RobertaForMaskedLM(model_config) if not config.task_adaptive_pretraining else RobertaForMaskedLM.from_pretrained("rinna/japanese-roberta-base")
+
+    if "wereWolf_BBS" in config.corpora:
+        model.resize_token_embeddings(len(tokenizer))
+        if config.person_token_base_words is not None:
+            id = tokenizer.convert_tokens_to_ids(person_token)
+            init_weight = torch.stack([model.roberta.embeddings.word_embeddings.weight[i, :] for i in tokenizer.convert_tokens_to_ids(config.person_token_base_words.split(' '))]).mean(dim=0)
+            model.roberta.embeddings.word_embeddings.weight.data[id, :] = init_weight
+        model.tie_weights()
+
     model = model.to(DEVICE)
 
     # load model from checkpoint
@@ -605,7 +617,7 @@ if __name__ == "__main__":
     parser.add_argument("--n_accum_steps", type=int, default=16, help="number of gradient accumulation steps. 16 for base.")
     parser.add_argument("--mask_prob", type=float, default=0.15, help="probability of masking a token")
     parser.add_argument("--task_adaptive_pretraining", action='store_true')
-    parser.add_argument('--additional_special_tokens', nargs='+', default='', type=str)
+    parser.add_argument("--person_token_base_words", default=None, type=str)
 
     # multi-gpu
     parser.add_argument("--n_nodes", type=int, default=1, help="number of nodes; See pytorch DDP tutorial for details")
