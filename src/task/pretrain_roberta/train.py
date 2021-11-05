@@ -616,8 +616,8 @@ if __name__ == "__main__":
     parser.add_argument("--max_seq_len", type=int, default=512, help="maximum input sequence length")
     parser.add_argument("--n_accum_steps", type=int, default=16, help="number of gradient accumulation steps. 16 for base.")
     parser.add_argument("--mask_prob", type=float, default=0.15, help="probability of masking a token")
-    parser.add_argument("--task_adaptive_pretraining", action='store_true')
-    parser.add_argument("--person_token_base_words", default=None, type=str)
+    parser.add_argument("--task_adaptive_pretraining", action='store_true', help="whether task adaptive pretraining or not. if true, load the pre-trained model and start additional pretraining with wereWolf_BBS corpus.")
+    parser.add_argument("--person_token_base_words", default=None, type=str, help="person token's weight will be initialized by averaging these words' weights. if None, it will be randomly initialized.")
 
     # multi-gpu
     parser.add_argument("--n_nodes", type=int, default=1, help="number of nodes; See pytorch DDP tutorial for details")
